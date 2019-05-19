@@ -1,8 +1,8 @@
 import com.xenomachina.argparser.ArgParser
 import com.xenomachina.argparser.mainBody
-import model.CityReview
+import model.CityRating
 import model.Rating
-import model.StateReview
+import model.StateRating
 import mu.KotlinLogging
 import org.openqa.selenium.By
 import org.openqa.selenium.NoSuchElementException
@@ -40,13 +40,13 @@ class MyArgs(parser: ArgParser) {
 fun main(args: Array<String>) = mainBody {
     ArgParser(args).parseInto(::MyArgs).run {
         try {
-            val reviews = getReviews()
-            val persistor = when (persistMode) {
-                PersistMode.FILE -> JSONFileReviewDataPersist(destination)
-                PersistMode.OTHER -> DefaultReviewDataPersist()
+            val reviews = scrapCityRatingsData()
+            val persistProcessor = when (persistMode) {
+                PersistMode.FILE -> JSONFileRatingsDataPersist(destination)
+                PersistMode.OTHER -> DefaultRatingsDataPersist()
             }
             LOGGER.info { "Persist review" }
-            persistor.persist(reviews)
+            persistProcessor.persist(reviews)
         } catch (e: Exception) {
             LOGGER.error { e }
         } finally {
@@ -57,7 +57,7 @@ fun main(args: Array<String>) = mainBody {
     }
 }
 
-private fun getDriver(driverExeFilePath: File): RemoteWebDriver {
+private fun MyArgs.getDriver(driverExeFilePath: File): RemoteWebDriver {
     val options = ChromeOptions()
     val proxy = "socks5://localhost:9050" // IP:PORT or HOST:PORT
     options.addArguments("start-maximized")
@@ -71,13 +71,13 @@ private fun getDriver(driverExeFilePath: File): RemoteWebDriver {
         .build()
 
     val chromeDriver = ChromeDriver(driverService, options)
-    sleep(1000)
+    sleep(5000)
     chromeDriver.get("http://check.torproject.org")
     sleep(3000)
     return chromeDriver
 }
 
-private fun MyArgs.getReviews(): List<StateReview> {
+private fun MyArgs.scrapCityRatingsData(): List<StateRating> {
     LOGGER.info { "Start scrapping city reviews" }
 
     return PARIS_AND_SUBURBS.asSequence()
@@ -92,7 +92,7 @@ private fun MyArgs.getReviews(): List<StateReview> {
             val cityReview = toCitiesLink(driver)
                 .map { cityLink -> scrapCityData(cityLink, driver) }
 
-            StateReview(code, name, cityReview)
+            StateRating(code, name, cityReview)
         }.toList()
 }
 
@@ -114,19 +114,28 @@ fun scrapStateName(driver: RemoteWebDriver): String {
         .substringAfter(" - ")
 }
 
-fun scrapCityData(cityURL: URL, driver: RemoteWebDriver): CityReview {
+val cityRegex = "([\\w\\s]+)\\s\\(([0-9]+)\\)".toRegex()
+val inseeRegex = "Statistiques INSEE : ([0-9]+)".toRegex()
+fun scrapCityData(cityURL: URL, driver: RemoteWebDriver): CityRating {
     driver.get(cityURL.toString())
     sleep(3000)
-    val city = driver.findElement(By.xpath("/html/body/div/div[@id=\"colleft\"]/h1")).text
-    val matchResult = checkNotNull("([\\w\\s]+)\\s\\(([0-9]+)\\)".toRegex().find(city))
-    val values = matchResult.groupValues
-    if (values.size < 3) {
+    val cityText = driver.findElement(By.xpath("/html/body/div/div[@id=\"colleft\"]/h1")).text
+    val cityMatchResult = checkNotNull(cityRegex.find(cityText))
+    if (cityMatchResult.groupValues.size < 3) {
         throw RuntimeException("Could not scrap city code and name")
     }
-    val name = values[1]
-    val code = values[2]
+    val name = cityMatchResult.groupValues[1]
+    val code = cityMatchResult.groupValues[2]
+
+    val inseeCodeText = driver.findElement(By.xpath("//*[@id=\"info\"]/p[2]/a")).text
+    val inseeMatchResult = checkNotNull(inseeRegex.find(inseeCodeText))
+    if (inseeMatchResult.groupValues.size < 2) {
+        throw RuntimeException("Could not scrap city code and name")
+    }
+    val inseeCode = inseeMatchResult.groupValues[1]
+
     val cityRatings = scrapCityRatings(driver)
-    return CityReview(code, name, cityRatings)
+    return CityRating(code, name, inseeCode, cityRatings)
 }
 
 val nbEvalRegex = "Notes obtenues sur ([0-9]+) évaluations".toRegex()

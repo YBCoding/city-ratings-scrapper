@@ -1,7 +1,7 @@
 package model
 
-data class StateReview(val code: String, val name: String, val cityReview: List<CityReview>)
-data class CityReview(val code: String, val name: String, val cityRatings: Map<Rating, Double>)
+data class StateRating(val code: String, val name: String, val cityRating: List<CityRating>)
+data class CityRating(val code: String, val name: String, val inseeCode: String, val ratings: Map<Rating, Double>)
 
 enum class Rating(val label: String) {
     ENVIRONMENT("Environnement"),
