@@ -26,21 +26,20 @@ val LOGGER = KotlinLogging.logger {}
 enum class PersistMode { FILE, OTHER }
 
 class MyArgs(parser: ArgParser) {
-    val v by parser.flagging("enable verbose mode")
     val persistMode by parser.mapping(
         "--file" to PersistMode.FILE,
         "--other" to PersistMode.OTHER,
         help = "mode of persistence"
     )
     val destination by parser.storing("destination file for --file") { File(this) }
+    val torDaemon: Process by parser.positional("tor exe file path") { launchTorDaemon(this) }
     val driver by parser.positional("chrome driver exe file path") { getDriver(File(this)) }
-    val torDaemon: Process by parser.positional("tor exe file path") { ProcessBuilder(this).start() }
 }
 
 fun main(args: Array<String>) = mainBody {
     ArgParser(args).parseInto(::MyArgs).run {
         try {
-            val reviews = scrapCityRatingsData()
+            val reviews = scrapCityRatingsData(driver)
             val persistProcessor = when (persistMode) {
                 PersistMode.FILE -> JSONFileRatingsDataPersist(destination)
                 PersistMode.OTHER -> DefaultRatingsDataPersist()
@@ -57,6 +56,10 @@ fun main(args: Array<String>) = mainBody {
     }
 }
 
+private fun MyArgs.launchTorDaemon(torCmd: String): Process {
+    return ProcessBuilder(torCmd).start()
+}
+
 private fun MyArgs.getDriver(driverExeFilePath: File): RemoteWebDriver {
     val options = ChromeOptions()
     val proxy = "socks5://localhost:9050" // IP:PORT or HOST:PORT
@@ -71,13 +74,12 @@ private fun MyArgs.getDriver(driverExeFilePath: File): RemoteWebDriver {
         .build()
 
     val chromeDriver = ChromeDriver(driverService, options)
-    sleep(5000)
     chromeDriver.get("http://check.torproject.org")
     sleep(3000)
     return chromeDriver
 }
 
-private fun MyArgs.scrapCityRatingsData(): List<StateRating> {
+private fun scrapCityRatingsData(driver: RemoteWebDriver): List<StateRating> {
     LOGGER.info { "Start scrapping city reviews" }
 
     return PARIS_AND_SUBURBS.asSequence()
